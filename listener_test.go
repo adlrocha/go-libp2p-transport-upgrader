@@ -9,6 +9,7 @@ import (
 
 	"github.com/libp2p/go-libp2p-core/mux"
 	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p-core/sec"
 	"github.com/libp2p/go-libp2p-core/sec/insecure"
 	tpt "github.com/libp2p/go-libp2p-core/transport"
 	mplex "github.com/libp2p/go-libp2p-mplex"
@@ -61,10 +62,24 @@ func (m *errorMuxer) NewConn(c net.Conn, isServer bool) (mux.MuxedConn, error) {
 	return nil, errors.New("mux error")
 }
 
+type MuxAdapter struct {
+	tpt sec.SecureTransport
+}
+
+func (mux *MuxAdapter) SecureInbound(ctx context.Context, insecure net.Conn) (sec.SecureConn, bool, error) {
+	sconn, err := mux.tpt.SecureInbound(ctx, insecure)
+	return sconn, true, err
+}
+
+func (mux *MuxAdapter) SecureOutbound(ctx context.Context, insecure net.Conn, p peer.ID) (sec.SecureConn, bool, error) {
+	sconn, err := mux.tpt.SecureOutbound(ctx, insecure, p)
+	return sconn, false, err
+}
+
 var _ = Describe("Listener", func() {
 	var (
 		defaultUpgrader = &st.Upgrader{
-			Secure: insecure.New(peer.ID(1)),
+			Secure: &MuxAdapter{tpt: insecure.New(peer.ID(1))},
 			Muxer:  &negotiatingMuxer{},
 		}
 	)
@@ -150,7 +165,7 @@ var _ = Describe("Listener", func() {
 
 	It("doesn't accept connections that fail to setup", func() {
 		upgrader := &st.Upgrader{
-			Secure: insecure.New(peer.ID(1)),
+			Secure: &MuxAdapter{tpt: insecure.New(peer.ID(1))},
 			Muxer:  &errorMuxer{},
 		}
 		ln := createListener(upgrader)
@@ -178,7 +193,7 @@ var _ = Describe("Listener", func() {
 			num := 3 * st.AcceptQueueLength
 			bm := newBlockingMuxer()
 			upgrader := &st.Upgrader{
-				Secure: insecure.New(peer.ID(1)),
+				Secure: &MuxAdapter{tpt: insecure.New(peer.ID(1))},
 				Muxer:  bm,
 			}
 			ln := createListener(upgrader)
