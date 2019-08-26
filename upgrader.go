@@ -27,7 +27,7 @@ var AcceptQueueLength = 16
 // to a full transport connection (secure and multiplexed).
 type Upgrader struct {
 	Protector pnet.Protector
-	Secure    sec.SecureTransport
+	Secure    sec.SecureMuxer
 	Muxer     mux.Multiplexer
 	Filters   *filter.Filters
 }
@@ -83,12 +83,12 @@ func (u *Upgrader) upgrade(ctx context.Context, t transport.Transport, maconn ma
 			" of Private Networks is forced by the enviroment")
 		return nil, pnet.ErrNotInPrivateNetwork
 	}
-	sconn, err := u.setupSecurity(ctx, conn, p)
+	sconn, server, err := u.setupSecurity(ctx, conn, p)
 	if err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("failed to negotiate security protocol: %s", err)
 	}
-	smconn, err := u.setupMuxer(ctx, sconn, p)
+	smconn, err := u.setupMuxer(ctx, sconn, server)
 	if err != nil {
 		sconn.Close()
 		return nil, fmt.Errorf("failed to negotiate security stream multiplexer: %s", err)
@@ -101,14 +101,14 @@ func (u *Upgrader) upgrade(ctx context.Context, t transport.Transport, maconn ma
 	}, nil
 }
 
-func (u *Upgrader) setupSecurity(ctx context.Context, conn net.Conn, p peer.ID) (sec.SecureConn, error) {
+func (u *Upgrader) setupSecurity(ctx context.Context, conn net.Conn, p peer.ID) (sec.SecureConn, bool, error) {
 	if p == "" {
 		return u.Secure.SecureInbound(ctx, conn)
 	}
 	return u.Secure.SecureOutbound(ctx, conn, p)
 }
 
-func (u *Upgrader) setupMuxer(ctx context.Context, conn net.Conn, p peer.ID) (mux.MuxedConn, error) {
+func (u *Upgrader) setupMuxer(ctx context.Context, conn net.Conn, server bool) (mux.MuxedConn, error) {
 	// TODO: The muxer should take a context.
 	done := make(chan struct{})
 
@@ -116,7 +116,7 @@ func (u *Upgrader) setupMuxer(ctx context.Context, conn net.Conn, p peer.ID) (mu
 	var err error
 	go func() {
 		defer close(done)
-		smconn, err = u.Muxer.NewConn(conn, p == "")
+		smconn, err = u.Muxer.NewConn(conn, server)
 	}()
 
 	select {
