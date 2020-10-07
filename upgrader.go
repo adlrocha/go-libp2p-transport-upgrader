@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/libp2p/go-libp2p-core/network"
 	"net"
+
+	"github.com/libp2p/go-libp2p-core/network"
 
 	"github.com/libp2p/go-libp2p-core/connmgr"
 	"github.com/libp2p/go-libp2p-core/mux"
@@ -13,8 +14,9 @@ import (
 	ipnet "github.com/libp2p/go-libp2p-core/pnet"
 	"github.com/libp2p/go-libp2p-core/sec"
 	"github.com/libp2p/go-libp2p-core/transport"
-	"github.com/libp2p/go-libp2p-pnet"
+	pnet "github.com/libp2p/go-libp2p-pnet"
 
+	comp "github.com/libp2p/go-libp2p-core/compression"
 	manet "github.com/multiformats/go-multiaddr-net"
 )
 
@@ -28,10 +30,11 @@ var AcceptQueueLength = 16
 // Upgrader is a multistream upgrader that can upgrade an underlying connection
 // to a full transport connection (secure and multiplexed).
 type Upgrader struct {
-	PSK       ipnet.PSK
-	Secure    sec.SecureTransport
-	Muxer     mux.Multiplexer
-	ConnGater connmgr.ConnectionGater
+	PSK         ipnet.PSK
+	Secure      sec.SecureTransport
+	Muxer       mux.Multiplexer
+	ConnGater   connmgr.ConnectionGater
+	Compression comp.CompressedTransport
 }
 
 // UpgradeListener upgrades the passed multiaddr-net listener into a full libp2p-transport listener.
@@ -80,6 +83,16 @@ func (u *Upgrader) upgrade(ctx context.Context, t transport.Transport, maconn ma
 		return nil, ipnet.ErrNotInPrivateNetwork
 	}
 
+	//Check if there is a compression transport and update accordingly.
+	var err error
+	if u.Compression != nil {
+		conn, err = u.setupCompression(ctx, conn, p)
+		if err != nil {
+			conn.Close()
+			return nil, fmt.Errorf("failed to negotiate compression algorithm: %s", err)
+		}
+	}
+
 	sconn, err := u.setupSecurity(ctx, conn, p)
 	if err != nil {
 		conn.Close()
@@ -116,6 +129,10 @@ func (u *Upgrader) setupSecurity(ctx context.Context, conn net.Conn, p peer.ID) 
 		return u.Secure.SecureInbound(ctx, conn)
 	}
 	return u.Secure.SecureOutbound(ctx, conn, p)
+}
+
+func (u *Upgrader) setupCompression(ctx context.Context, conn net.Conn, p peer.ID) (comp.CompressedConn, error) {
+	return u.Compression.NewConn(conn, p == "")
 }
 
 func (u *Upgrader) setupMuxer(ctx context.Context, conn net.Conn, p peer.ID) (mux.MuxedConn, error) {
