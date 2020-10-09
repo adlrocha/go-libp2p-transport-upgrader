@@ -83,16 +83,6 @@ func (u *Upgrader) upgrade(ctx context.Context, t transport.Transport, maconn ma
 		return nil, ipnet.ErrNotInPrivateNetwork
 	}
 
-	//Check if there is a compression transport and update accordingly.
-	var err error
-	if u.Compression != nil {
-		conn, err = u.setupCompression(ctx, conn, p)
-		if err != nil {
-			conn.Close()
-			return nil, fmt.Errorf("failed to negotiate compression algorithm: %s", err)
-		}
-	}
-
 	sconn, err := u.setupSecurity(ctx, conn, p)
 	if err != nil {
 		conn.Close()
@@ -109,7 +99,18 @@ func (u *Upgrader) upgrade(ctx context.Context, t transport.Transport, maconn ma
 			sconn.RemotePeer().Pretty(), maconn.RemoteMultiaddr(), dir)
 	}
 
-	smconn, err := u.setupMuxer(ctx, sconn, p)
+	conn = sconn
+
+	//Check if there is a compression transport and update accordingly.
+	if u.Compression != nil {
+		conn, err = u.setupCompression(ctx, sconn, p)
+		if err != nil {
+			conn.Close()
+			return nil, fmt.Errorf("failed to negotiate compression algorithm: %s", err)
+		}
+	}
+
+	smconn, err := u.setupMuxer(ctx, conn, p)
 	if err != nil {
 		sconn.Close()
 		return nil, fmt.Errorf("failed to negotiate stream multiplexer: %s", err)
